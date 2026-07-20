@@ -1,0 +1,13 @@
+{
+  "name": "betheme-mcp",
+  "version": "28.5.4",
+  "private": true,
+  "type": "module",
+  "description": "MCP server and WordPress bridge for BeTheme-powered sites",
+  "scripts": {
+    "start": "node src/server.js",
+    "test": "node --test",
+    "lint": "node --check src/*.js",
+    "demo": "node scripts/demo.js"
+  }
+}

@@ -58,6 +58,10 @@ This repository currently contains the project documentation and the BeTheme res
 
 The project should ship through GitHub releases with versioning aligned to the BeTheme version it targets. This ensures that site operators can clearly match the MCP plugin package to the BeTheme release they are using.
 
+## Alpha release notice
+
+This project is currently an alpha release and is still under quality assurance. It is intended for evaluation, integration testing, and controlled internal use, not for production deployment until QA is complete.
+
 ## Status
 
-Status: specification and documentation complete; implementation in progress.
+Status: core MCP runtime, bridge routes, and test coverage are now implemented and verified locally. The current release is alpha and remains in QA.
