@@ -24,6 +24,34 @@ This project aims to let an AI agent manage a BeTheme-powered WordPress site wit
 
 The native WordPress MCP experience is not sufficient for BeTheme because BeTheme uses its own builder architecture and custom page/template model. This project bridges that gap so an agent can work with the site in a way that feels close to working directly in the WordPress backend.
 
+## Installation
+
+### Prerequisites
+
+- Node.js 22 or newer
+- npm
+- A WordPress site with the BeTheme bridge plugin installed
+
+### Local setup
+
+1. Clone the repository and install dependencies:
+   - `npm install`
+2. Create a local environment file from the example:
+   - `cp .env.example .env`
+3. Configure the bridge connection values in `.env`:
+   - `BETHEME_MCP_API_KEY=replace-with-a-secure-key`
+   - `BETHEME_MCP_BASE_URL=http://your-wordpress-site.test`
+4. Start the MCP server:
+   - `npm start`
+5. Optional: run the local demo harness:
+   - `npm run demo`
+
+### WordPress bridge plugin
+
+1. Copy the plugin folder from [plugin](plugin) into your WordPress installation's `wp-content/plugins/` directory.
+2. Activate the plugin from the WordPress admin dashboard.
+3. Set the same API key in the WordPress environment that the MCP server uses.
+
 ## Documentation
 
 The project documentation is organized under the docs folder:
@@ -56,7 +84,7 @@ This repository currently contains the project documentation and the BeTheme res
 
 ## Release and versioning
 
-The project should ship through GitHub releases with versioning aligned to the BeTheme version it targets. This ensures that site operators can clearly match the MCP plugin package to the BeTheme release they are using.
+The project ships through GitHub releases with versioning aligned to the BeTheme version it targets. The first alpha release is version `28.5.4-alpha.001`, which keeps the BeTheme version reference of `28.5.4` and clearly marks the package as the first alpha build.
 
 ## Alpha release notice
 

@@ -30,5 +30,9 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: betheme-mcp-${{ github.ref_name }}.zip
+          name: BeTheme MCP ${{ github.ref_name }}
+          body: |
+            Alpha release for BeTheme-compatible MCP server support.
+            Versioning follows the target BeTheme release and appends an alpha suffix.
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

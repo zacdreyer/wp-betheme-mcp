@@ -1,6 +1,6 @@
 {
   "name": "betheme-mcp",
-  "version": "28.5.4",
+  "version": "28.5.4-alpha.001",
   "private": true,
   "type": "module",
   "description": "MCP server and WordPress bridge for BeTheme-powered sites",
