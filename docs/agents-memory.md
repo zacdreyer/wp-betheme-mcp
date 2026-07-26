@@ -10,16 +10,20 @@
 ## Current implementation state
 
 - MCP server exposes a complete tool manifest for page, template, and plugin operations.
-- The server supports initialization, tool listing, tool invocation, and newline-delimited stdio transport handling.
-- The plugin bridge now exposes REST routes for health, site context, capabilities, pages, templates, plugins, and plugin installation.
-- Bridge requests now honor environment-based configuration and timeouts, and the local test suite passes.
+- The server validates every tool call against the declared JSON schema and masks internal error details.
+- The server supports initialization, tool listing, tool invocation, newline-delimited stdio transport handling, and MCP resources/prompts retrieval.
+- The bridge client signs every request with HMAC-SHA256 and a timestamp to prevent replay attacks.
+- The plugin bridge enforces per-route WordPress capability checks (pages, templates, plugin install/activate) and sanitizes all input.
+- Only allow-listed BeTheme meta keys are accepted; builder payloads are stored in BeTheme's native format.
+- Every administrative action is logged through the `betheme_mcp_audit` hook.
+- The local Node test suite and PHP syntax check pass.
 
 ## Next priorities
 
-1. Add support for more BeTheme-specific operations such as page metadata, template assignment, and builder payload handling.
-2. Harden authentication and authorization for the WordPress bridge.
-3. Add integration tests against a local WordPress + BeTheme environment.
-4. Improve the release workflow to version artifacts against the active BeTheme release.
+1. Add integration tests against a real local WordPress + BeTheme environment.
+2. Add automated dependency vulnerability scanning to the release workflow.
+3. Add artifact signing/checksums to GitHub releases.
+4. Expand the MCP surface to include WooCommerce and media operations once the core bridge is proven in production.
 
 ## Working notes
 

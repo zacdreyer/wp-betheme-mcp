@@ -26,8 +26,13 @@ jobs:
           mkdir -p dist
           cp -R plugin dist/plugin
           cp -R src dist/src
+          cp -R docs dist/docs
           cp package.json dist/package.json
+          cp package-lock.json dist/package-lock.json
           cp README.md dist/README.md
+          cp .env.example dist/.env.example
+          cp AGENTS.md dist/AGENTS.md
+          cp CLAUDE.md dist/CLAUDE.md
           cd dist && zip -r ../betheme-mcp-${GITHUB_REF_NAME}.zip .
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2

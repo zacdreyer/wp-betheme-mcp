@@ -1,5 +1,5 @@
 import { pathToFileURL } from 'node:url';
-import { createAuditLogger, validateToolArgs } from './security.js';
+import { createAuditLogger, sanitizeToolArgs } from './security.js';
 
 export function createToolManifest() {
   return [
@@ -46,7 +46,7 @@ export function createToolManifest() {
           title: { type: 'string' },
           slug: { type: 'string' },
           content: { type: 'string' },
-          builder_payload: { type: 'object' },
+          builder_payload: {},
           meta: { type: 'object' }
         },
         required: ['title']
@@ -61,7 +61,7 @@ export function createToolManifest() {
           id: { type: 'integer' },
           title: { type: 'string' },
           content: { type: 'string' },
-          builder_payload: { type: 'object' },
+          builder_payload: {},
           meta: { type: 'object' }
         },
         required: ['id']
@@ -101,7 +101,7 @@ export function createToolManifest() {
         type: 'object',
         properties: {
           id: { type: 'integer' },
-          builder_payload: { type: 'object' }
+          builder_payload: {}
         },
         required: ['id', 'builder_payload']
       }
@@ -129,7 +129,7 @@ export function createToolManifest() {
           title: { type: 'string' },
           type: { type: 'string' },
           content: { type: 'string' },
-          builder_payload: { type: 'object' },
+          builder_payload: {},
           meta: { type: 'object' }
         },
         required: ['title', 'type']
@@ -145,7 +145,7 @@ export function createToolManifest() {
           title: { type: 'string' },
           type: { type: 'string' },
           content: { type: 'string' },
-          builder_payload: { type: 'object' },
+          builder_payload: {},
           meta: { type: 'object' }
         },
         required: ['id']
@@ -193,13 +193,15 @@ export function createToolManifest() {
 }
 
 export function createMcpServer({ bridge = null, auditLogger = createAuditLogger() } = {}) {
+  const manifest = createToolManifest();
+
   return {
     listTools() {
-      return createToolManifest();
+      return manifest;
     },
 
     async callTool(name, args = {}) {
-      const safeArgs = validateToolArgs(name, args);
+      const safeArgs = sanitizeToolArgs(name, args, manifest);
 
       if (!bridge) {
         throw new Error('Bridge authentication is required');
@@ -269,7 +271,7 @@ export function createMcpServer({ bridge = null, auditLogger = createAuditLogger
             },
             serverInfo: {
               name: 'betheme-mcp',
-              version: '28.5.4'
+              version: '28.5.4-alpha.001'
             }
           }
         };
@@ -286,19 +288,35 @@ export function createMcpServer({ bridge = null, auditLogger = createAuditLogger
       if (method === 'tools/call') {
         const toolName = params.name;
         const toolArgs = params.arguments || {};
-        const result = await this.callTool(toolName, toolArgs);
-        return {
-          jsonrpc: '2.0',
-          id,
-          result: {
-            content: [
-              {
-                type: 'json',
-                json: result
-              }
-            ]
-          }
-        };
+        try {
+          const result = await this.callTool(toolName, toolArgs);
+          return {
+            jsonrpc: '2.0',
+            id,
+            result: {
+              content: [
+                {
+                  type: 'json',
+                  json: result
+                }
+              ]
+            }
+          };
+        } catch (error) {
+          const isClientError = error.message && (
+            /validation failed/i.test(error.message) ||
+            /authentication required/i.test(error.message) ||
+            /unknown tool/i.test(error.message)
+          );
+          return {
+            jsonrpc: '2.0',
+            id,
+            error: {
+              code: isClientError ? -32602 : -32603,
+              message: isClientError ? error.message : 'Internal error'
+            }
+          };
+        }
       }
 
       if (method === 'resources/list') {
@@ -387,6 +405,14 @@ export function createStdioTransport({ server, stdin = process.stdin, stdout = p
     stdout.write(`${JSON.stringify(payload)}\n`);
   };
 
+  const writeError = (id, code, message) => {
+    writeResponse({
+      jsonrpc: '2.0',
+      id,
+      error: { code, message }
+    });
+  };
+
   const processChunk = async (chunk) => {
     buffer += chunk.toString();
     const lines = buffer.split(/\n/);
@@ -396,33 +422,37 @@ export function createStdioTransport({ server, stdin = process.stdin, stdout = p
       const trimmed = line.trim();
       if (!trimmed) continue;
 
+      let message = null;
       try {
-        const message = JSON.parse(trimmed);
+        message = JSON.parse(trimmed);
+      } catch {
+        writeError(null, -32700, 'Parse error');
+        continue;
+      }
+
+      const id = message && typeof message === 'object' ? message.id : null;
+
+      try {
         const response = await server.handleMessage(message);
         if (response) {
           writeResponse(response);
         }
       } catch (error) {
-        writeResponse({
-          jsonrpc: '2.0',
-          error: {
-            code: -32603,
-            message: error.message
-          }
-        });
+        const isClientError = error.message && (
+          /validation failed/i.test(error.message) ||
+          /authentication required/i.test(error.message) ||
+          /unknown tool/i.test(error.message)
+        );
+        const code = isClientError ? -32602 : -32603;
+        const messageText = isClientError ? error.message : 'Internal error';
+        writeError(id, code, messageText);
       }
     }
   };
 
   stdin.on('data', (chunk) => {
-    processChunk(chunk).catch((error) => {
-      writeResponse({
-        jsonrpc: '2.0',
-        error: {
-          code: -32603,
-          message: error.message
-        }
-      });
+    processChunk(chunk).catch(() => {
+      writeError(null, -32603, 'Internal error');
     });
   });
 

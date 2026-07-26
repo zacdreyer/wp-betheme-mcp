@@ -41,6 +41,12 @@ The native WordPress MCP experience is not sufficient for BeTheme because BeThem
 3. Configure the bridge connection values in `.env`:
    - `BETHEME_MCP_API_KEY=replace-with-a-secure-key`
    - `BETHEME_MCP_BASE_URL=http://your-wordpress-site.test`
+   - `BETHEME_MCP_TIMEOUT_MS=10000`
+
+4. In WordPress, define the same API key and optional policy flags in `wp-config.php`:
+   - `define('BETHEME_MCP_API_KEY', 'replace-with-a-secure-key');`
+   - `define('BETHEME_MCP_AUDIT_LOG', true);`
+   - `define('BETHEME_MCP_ALLOW_PLUGIN_INSTALL', false);`
 4. Start the MCP server:
    - `npm start`
 5. Optional: run the local demo harness:
@@ -85,6 +91,21 @@ This repository currently contains the project documentation and the BeTheme res
 ## Release and versioning
 
 The project ships through GitHub releases with versioning aligned to the BeTheme version it targets. The first alpha release is version `28.5.4-alpha.001`, which keeps the BeTheme version reference of `28.5.4` and clearly marks the package as the first alpha build.
+
+## Security model
+
+The bridge uses a defense-in-depth design intended for high-privilege administrative use:
+
+- **API key authentication**: every request must include a valid `X-API-Key` header.
+- **Request signing**: every request is signed with HMAC-SHA256 using a timestamp and the request body to prevent replay attacks and verify integrity.
+- **WordPress capability checks**: routes enforce the least-privilege WordPress capabilities:
+  - Pages require `edit_pages` / `publish_pages` (or `edit_others_pages` for content owned by another user)
+  - Templates require `edit_theme_options`
+  - Plugin listing/activation/deactivation requires `activate_plugins`
+  - Plugin installation requires `install_plugins` and must be explicitly enabled with `BETHEME_MCP_ALLOW_PLUGIN_INSTALL`
+- **Input sanitization**: titles, slugs, content, and meta values are sanitized; only allow-listed BeTheme meta keys are accepted.
+- **Builder payload compatibility**: the bridge respects BeTheme's `builder-storage` option and stores `mfn-page-items` in either plain or base64-encoded serialized form.
+- **Audit logging**: every administrative action is logged via the `betheme_mcp_audit` hook and optionally to the PHP error log when `BETHEME_MCP_AUDIT_LOG` is enabled.
 
 ## Alpha release notice
 
