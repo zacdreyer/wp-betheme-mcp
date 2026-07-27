@@ -2,7 +2,7 @@
 /**
  * Plugin Name: BeTheme MCP Bridge
  * Description: Secure bridge endpoints for an MCP server to manage WordPress and BeTheme content.
- * Version: 28.5.4-alpha.001
+ * Version: 28.5.4-alpha.003
  * Author: BeTheme MCP Project
  */
 
@@ -85,6 +85,10 @@ class BeTheme_Mcp_Bridge {
         'single-portfolio', 'footer', 'search', 'custom',
     ];
 
+    private const MAX_BUILDER_PAYLOAD_BYTES = 1048576;
+    private const RATE_LIMIT_REQUESTS = 120;
+    private const RATE_LIMIT_WINDOW = 60;
+
     public static function bootstrap() {
         add_action('rest_api_init', [__CLASS__, 'register_routes']);
     }
@@ -93,6 +97,12 @@ class BeTheme_Mcp_Bridge {
         register_rest_route('betheme-mcp/v1', '/health', [
             'methods' => 'GET',
             'callback' => [__CLASS__, 'health'],
+            'permission_callback' => [__CLASS__, 'auth_check'],
+        ]);
+
+        register_rest_route('betheme-mcp/v1', '/auth', [
+            'methods' => 'POST',
+            'callback' => [__CLASS__, 'auth_exchange'],
             'permission_callback' => [__CLASS__, 'auth_check'],
         ]);
 
@@ -173,12 +183,38 @@ class BeTheme_Mcp_Bridge {
         return defined('BETHEME_MCP_API_KEY') ? BETHEME_MCP_API_KEY : '';
     }
 
+    private static function check_rate_limit($apiKey) {
+        if (empty($apiKey)) {
+            return true;
+        }
+
+        $transientKey = 'betheme_mcp_rl_' . md5($apiKey);
+        $requests = get_transient($transientKey);
+
+        if ($requests === false) {
+            set_transient($transientKey, 1, self::RATE_LIMIT_WINDOW);
+            return true;
+        }
+
+        if ((int) $requests >= self::RATE_LIMIT_REQUESTS) {
+            return new WP_Error('rest_rate_limited', 'Rate limit exceeded. Slow down.', ['status' => 429]);
+        }
+
+        set_transient($transientKey, (int) $requests + 1, self::RATE_LIMIT_WINDOW);
+        return true;
+    }
+
     public static function auth_check($request) {
         $apiKey = $request->get_header('x-api-key');
         $expected = self::get_expected_api_key();
 
         if (!$expected || !hash_equals($expected, (string) $apiKey)) {
             return new WP_Error('rest_forbidden', 'Authentication required', ['status' => 401]);
+        }
+
+        $rateLimit = self::check_rate_limit($apiKey);
+        if (is_wp_error($rateLimit)) {
+            return $rateLimit;
         }
 
         $timestamp = $request->get_header('x-request-timestamp');
@@ -214,13 +250,24 @@ class BeTheme_Mcp_Bridge {
         }
 
         $method = $request->get_method();
-        $capability = ($method === 'GET') ? 'edit_pages' : 'publish_pages';
+        $capabilityMap = [
+            'GET' => 'edit_pages',
+            'POST' => 'publish_pages',
+            'PUT' => 'edit_pages',
+            'DELETE' => 'delete_pages',
+        ];
+        $capability = $capabilityMap[$method] ?? 'edit_pages';
         $postId = (int) $request->get_param('id');
 
         if ($postId && $method !== 'POST') {
             $post = get_post($postId);
-            if ($post && $post->post_author != get_current_user_id()) {
-                $capability = 'edit_others_pages';
+            if ($post && (int) $post->post_author !== get_current_user_id()) {
+                $othersMap = [
+                    'GET' => 'edit_others_pages',
+                    'PUT' => 'edit_others_pages',
+                    'DELETE' => 'delete_others_pages',
+                ];
+                $capability = $othersMap[$method] ?? 'edit_others_pages';
             }
         }
 
@@ -330,6 +377,11 @@ class BeTheme_Mcp_Bridge {
             return;
         }
 
+        $encoded = wp_json_encode($payload);
+        if (strlen($encoded) > self::MAX_BUILDER_PAYLOAD_BYTES) {
+            return new WP_Error('payload_too_large', 'Builder payload exceeds maximum allowed size', ['status' => 413]);
+        }
+
         $storageMode = function_exists('mfn_opts_get') ? mfn_opts_get('builder-storage') : '';
 
         if ($storageMode === 'encode') {
@@ -339,6 +391,7 @@ class BeTheme_Mcp_Bridge {
         }
 
         update_post_meta($postId, 'mfn-page-object', $payload);
+        return true;
     }
 
     private static function read_builder_payload($postId) {
@@ -380,6 +433,25 @@ class BeTheme_Mcp_Bridge {
 
     public static function health($request) {
         return ['ok' => true, 'site' => esc_html(get_bloginfo('name'))];
+    }
+
+    public static function auth_exchange($request) {
+        $theme = wp_get_theme();
+        self::audit('authenticate', get_current_user_id(), 'success');
+
+        return [
+            'authenticated' => true,
+            'site' => esc_html(get_bloginfo('name')),
+            'url' => esc_url(home_url('/')),
+            'theme' => esc_html($theme->get('Name')),
+            'themeVersion' => esc_html($theme->get('Version')),
+            'capabilities' => [
+                'pages',
+                'templates',
+                'plugins',
+                'builder_metadata',
+            ],
+        ];
     }
 
     public static function site_context($request) {
@@ -426,7 +498,10 @@ class BeTheme_Mcp_Bridge {
             }
 
             if (!empty($body['builder_payload']) && is_array($body['builder_payload'])) {
-                self::store_builder_payload($postId, $body['builder_payload']);
+                $stored = self::store_builder_payload($postId, $body['builder_payload']);
+                if (is_wp_error($stored)) {
+                    return $stored;
+                }
             }
 
             if (!empty($body['meta']) && is_array($body['meta'])) {
@@ -497,7 +572,10 @@ class BeTheme_Mcp_Bridge {
             }
 
             if (array_key_exists('builder_payload', $body) && is_array($body['builder_payload'])) {
-                self::store_builder_payload($pageId, $body['builder_payload']);
+                $stored = self::store_builder_payload($pageId, $body['builder_payload']);
+                if (is_wp_error($stored)) {
+                    return $stored;
+                }
             }
 
             if (!empty($body['meta']) && is_array($body['meta'])) {
@@ -548,7 +626,10 @@ class BeTheme_Mcp_Bridge {
         if ($request->get_method() === 'POST') {
             $body = $request->get_json_params();
             $payload = isset($body['builder_payload']) && is_array($body['builder_payload']) ? $body['builder_payload'] : [];
-            self::store_builder_payload($pageId, $payload);
+            $stored = self::store_builder_payload($pageId, $payload);
+            if (is_wp_error($stored)) {
+                return $stored;
+            }
             self::audit('save_builder_payload', $pageId, 'success');
             return ['id' => $pageId, 'saved' => true];
         }
@@ -581,7 +662,10 @@ class BeTheme_Mcp_Bridge {
             update_post_meta($postId, 'mfn_template_type', $type);
 
             if (!empty($body['builder_payload']) && is_array($body['builder_payload'])) {
-                self::store_builder_payload($postId, $body['builder_payload']);
+                $stored = self::store_builder_payload($postId, $body['builder_payload']);
+                if (is_wp_error($stored)) {
+                    return $stored;
+                }
             }
 
             if (!empty($body['meta']) && is_array($body['meta'])) {
@@ -643,7 +727,10 @@ class BeTheme_Mcp_Bridge {
             }
 
             if (array_key_exists('builder_payload', $body) && is_array($body['builder_payload'])) {
-                self::store_builder_payload($templateId, $body['builder_payload']);
+                $stored = self::store_builder_payload($templateId, $body['builder_payload']);
+                if (is_wp_error($stored)) {
+                    return $stored;
+                }
             }
 
             if (!empty($body['meta']) && is_array($body['meta'])) {

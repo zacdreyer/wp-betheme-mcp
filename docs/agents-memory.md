@@ -16,7 +16,12 @@
 - The plugin bridge enforces per-route WordPress capability checks (pages, templates, plugin install/activate) and sanitizes all input.
 - Only allow-listed BeTheme meta keys are accepted; builder payloads are stored in BeTheme's native format.
 - Every administrative action is logged through the `betheme_mcp_audit` hook.
-- The local Node test suite and PHP syntax check pass.
+- Rate limiting is enforced per API key using a WordPress transient bucket.
+- Builder payload writes are capped to a maximum JSON size to prevent abuse.
+- Multi-site support is implemented: the local MCP server can manage many WordPress sites via a `sites.json` file or `BETHEME_MCP_SITES` env var, and tools accept an optional `site` argument.
+- A `list_sites` tool exposes configured sites (without credentials) so the agent can target the correct site.
+- The release workflow runs PHP lint and can include docs/examples in release archives.
+- The local Node test suite, Node lint, and PHP syntax check pass (`npm test && npm run lint && php -l`).
 
 ## Next priorities
 

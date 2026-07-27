@@ -1,0 +1,14 @@
+[
+  {
+    "name": "client-a",
+    "baseUrl": "https://client-a.test",
+    "apiKey": "replace-with-a-secure-key-for-client-a",
+    "timeoutMs": 10000
+  },
+  {
+    "name": "client-b",
+    "baseUrl": "https://client-b.test",
+    "apiKey": "replace-with-a-secure-key-for-client-b",
+    "timeoutMs": 10000
+  }
+]

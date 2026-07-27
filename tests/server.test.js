@@ -26,13 +26,49 @@ test('tool manifest includes MCP-ready page and template operations', () => {
   const manifest = createToolManifest();
   const names = manifest.map((tool) => tool.name);
 
-  assert.deepEqual(names.slice(0, 4), ['health_check', 'authenticate', 'get_site_context', 'get_capabilities']);
+  assert.deepEqual(names.slice(0, 5), ['health_check', 'authenticate', 'list_sites', 'get_site_context', 'get_capabilities']);
 });
 
 test('server rejects calls without bridge authentication', async () => {
   const server = createMcpServer();
 
   await assert.rejects(() => server.callTool('list_plugins', {}), /authentication/i);
+});
+
+test('server routes authenticate to the auth endpoint', async () => {
+  const calls = [];
+  const bridge = {
+    async request(path, options = {}) {
+      calls.push({ path, options });
+      return { authenticated: true };
+    }
+  };
+
+  const server = createMcpServer({ bridge });
+  const result = await server.callTool('authenticate', {});
+
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].path, '/betheme-mcp/v1/auth');
+  assert.equal(calls[0].options.method, 'POST');
+  assert.equal(calls[0].options.body, undefined);
+  assert.deepEqual(result, { authenticated: true });
+});
+
+test('server forwards status filter when listing pages', async () => {
+  const calls = [];
+  const bridge = {
+    async request(path, options = {}) {
+      calls.push({ path, options });
+      return { pages: [] };
+    }
+  };
+
+  const server = createMcpServer({ bridge });
+  await server.callTool('list_pages', { status: 'publish' });
+
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].path, '/betheme-mcp/v1/pages?status=publish');
+  assert.equal(calls[0].options.method, 'GET');
 });
 
 test('server routes page updates to the correct bridge endpoint', async () => {
@@ -106,4 +142,56 @@ test('stdio transport emits JSON-RPC responses for newline-delimited messages', 
   await transport.ready;
 
   assert.equal(stdoutChunks.join(''), '{"jsonrpc":"2.0","id":7,"result":{"ok":true}}\n');
+});
+
+test('server exposes configured sites without credentials', async () => {
+  const sites = [
+    { name: 'client-a', baseUrl: 'https://a.test', apiKey: 'secret-a' },
+    { name: 'client-b', baseUrl: 'https://b.test', apiKey: 'secret-b' }
+  ];
+
+  const server = createMcpServer({ sites });
+  const result = await server.callTool('list_sites', {});
+
+  assert.deepEqual(result, [
+    { name: 'client-a', baseUrl: 'https://a.test' },
+    { name: 'client-b', baseUrl: 'https://b.test' }
+  ]);
+});
+
+test('server selects the requested site for multi-site tool calls', async () => {
+  const calls = [];
+  const bridgeFactory = (siteName) => ({
+    async request(path, options = {}) {
+      calls.push({ siteName, path, options });
+      return { ok: true };
+    }
+  });
+
+  const server = createMcpServer({ bridgeFactory });
+  await server.callTool('health_check', { site: 'client-b' });
+  await server.callTool('get_page', { id: 7, site: 'client-a' });
+
+  assert.equal(calls.length, 2);
+  assert.equal(calls[0].siteName, 'client-b');
+  assert.equal(calls[0].path, '/betheme-mcp/v1/health');
+  assert.equal(calls[1].siteName, 'client-a');
+  assert.equal(calls[1].path, '/betheme-mcp/v1/pages/7');
+});
+
+test('server strips site argument before forwarding to bridge', async () => {
+  const calls = [];
+  const bridgeFactory = () => ({
+    async request(path, options = {}) {
+      calls.push({ path, body: options.body });
+      return { ok: true };
+    }
+  });
+
+  const server = createMcpServer({ bridgeFactory });
+  await server.callTool('create_page', { title: 'Hello', site: 'client-a' });
+
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].body.site, undefined);
+  assert.equal(calls[0].body.title, 'Hello');
 });
